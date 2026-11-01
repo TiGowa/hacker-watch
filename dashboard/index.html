@@ -1,0 +1,372 @@
+<meta name="dash-one-writer">
+<style>
+  .ww { display: grid; gap: var(--cds-gap-lg); font-family: var(--font-anthropic-sans); }
+  .ww h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .ww .head { display: grid; gap: var(--cds-gap-xs); }
+  .ww .lede { margin: 0; max-width: 72ch; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); }
+  .ww .take { margin: 0; max-width: 72ch; font-size: var(--cds-font-size-body); }
+  .ww .take b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ww .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--cds-gap-md); }
+  .ww .tile, .ww .card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .ww .tile { display: grid; gap: var(--cds-gap-xs); align-content: start; }
+  .ww .lbl { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .ww .num { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .ww .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+  .ww .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+  .ww .grid > .card:first-child { grid-column: 1 / -1; }
+  .ww h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .ww .note { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: var(--cds-gap-xs) 0 var(--cds-gap-md); }
+  .ww .scroll { overflow: auto; max-height: 28rem; }
+  .ww table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .ww th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); position: sticky; top: 0; background: var(--color-panel); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .ww td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .ww .n { text-align: right; }
+  .ww .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .ww a { color: inherit; text-decoration-color: var(--color-border-line); }
+  .ww .cp { display: inline-flex; align-items: center; gap: var(--cds-gap-xs); max-width: 100%; }
+  .ww .cp-text { display: inline-block; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .ww .cp-btn { flex: none; display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; padding: 0; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg-muted); cursor: pointer; }
+  .ww .cp-btn:hover { color: var(--color-fg); }
+  .ww .cp-btn:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 1px; }
+  .ww .cp-btn svg { width: .85rem; height: .85rem; }
+  .ww .cp-btn .ok-mark { display: none; }
+  .ww .cp-btn.copied { color: var(--color-ok); border-color: currentColor; }
+  .ww .cp-btn.copied .ok-mark { display: block; }
+  .ww .cp-btn.copied .copy-mark { display: none; }
+  .ww .pill { display: inline-block; padding: 0 var(--cds-pad-sm); border-radius: 999px; border: 1px solid currentColor; font-size: var(--cds-font-size-caption); }
+  .ww .s-ok { color: var(--color-ok); }
+  .ww .s-warn { color: var(--color-warn); }
+  .ww .s-bad { color: var(--color-bad); }
+  .ww .chart { position: relative; min-height: 10rem; }
+  .ww .tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; }
+  .ww .tip .k { color: var(--cds-text-secondary); }
+  .ww .fail { display: flex; align-items: center; justify-content: center; gap: var(--cds-gap-xs); min-height: 6rem; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .ww .fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
+  .ww [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  .ww [data-dash-source-state=empty] { color: transparent; }
+</style>
+
+<div class="ww">
+  <header class="head" id="top">
+    <h1>efd22425 wallet watch</h1>
+    <p class="lede">Funded by three Binance hot wallets on Oct 29. Since Nov 1 it has been sending chunks to fresh wallets that swap out of NEAR through NEAR Intents and the Omni Bridge. Snapshot from the local watcher as of <span data-draw="asof" data-source="accounts" data-field="as_of" data-row="0" class="dash-skeleton">—</span> UTC.</p>
+    <p class="take">Still in the wallet: <b data-draw="rootbal" data-source="summary" data-field="root_balance_near" data-row="0" class="dash-skeleton">—</b> NEAR. Value that has left NEAR so far: <b data-draw="exusd" data-source="summary" data-field="exited_usd" data-row="0" class="dash-skeleton">—</b>, mostly as <b data-draw="topasset" data-source="by_asset" data-field="asset" data-row="0" class="dash-skeleton">—</b>.</p>
+  </header>
+
+  <section class="tiles" id="figures">
+    <div class="tile">
+      <span class="lbl">Root wallet balance</span>
+      <span class="num dash-skeleton" data-draw="t-root" data-source="summary" data-field="root_balance_near" data-row="0">—</span>
+      <span class="sub">NEAR</span>
+    </div>
+    <div class="tile">
+      <span class="lbl">Sent out by root</span>
+      <span class="num dash-skeleton" data-draw="t-sent" data-source="summary" data-field="root_sent_near" data-row="0">—</span>
+      <span class="sub"><span data-draw="t-pct" data-source="summary" data-field="share_moved" data-row="0">—</span> of what it received</span>
+    </div>
+    <div class="tile">
+      <span class="lbl">Left NEAR (swaps and bridges)</span>
+      <span class="num dash-skeleton" data-draw="t-exited" data-source="summary" data-field="exited_near" data-row="0">—</span>
+      <span class="sub">NEAR in <span data-draw="t-exits" data-source="summary" data-field="exits" data-row="0">—</span> exits</span>
+    </div>
+    <div class="tile">
+      <span class="lbl">Still in downstream wallets</span>
+      <span class="num dash-skeleton" data-draw="t-held" data-source="summary" data-field="downstream_near" data-row="0">—</span>
+      <span class="sub">NEAR across <span data-draw="t-cluster" data-source="summary" data-field="cluster_accounts" data-row="0">—</span> traced accounts</span>
+    </div>
+  </section>
+
+  <section class="grid" id="routes">
+    <div class="card">
+      <h2 id="by-asset">Where it went</h2>
+      <p class="note">NEAR that left through each route and asset. Failed and refunded swaps are left out.</p>
+      <div class="chart dash-skeleton" data-draw="assets" data-source="by_asset"></div>
+    </div>
+    <div class="card">
+      <h2 id="btc">BTC recipients</h2>
+      <p class="note">Addresses that received BTC from Intents swaps, with their balance on mempool.space.</p>
+      <div class="scroll">
+        <table data-source="btc" data-row-key="address">
+          <thead><tr><th data-field="address">Address</th><th class="n" data-field="received_btc">Received</th><th class="n" data-field="spent_btc">Sent on</th><th class="n" data-field="held_btc">Held</th><th class="n" data-field="txs">Txs</th></tr></thead>
+          <tbody data-draw="btc-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="evm">EVM recipients</h2>
+      <p class="note">Addresses on Ethereum and other EVM chains that received ETH from Intents swaps or bridged NEAR from the Omni Bridge, with their current balances. Outgoing txs above zero means the address has sent funds on.</p>
+      <div class="scroll">
+        <table data-source="evm" data-row-key="address,chain">
+          <thead><tr><th data-field="address">Address</th><th data-field="chain">Chain</th><th data-field="assets_received">Received</th><th class="n" data-field="near_in">NEAR in</th><th class="n" data-field="native_balance">Native balance</th><th class="n" data-field="near_token_balance">NEAR token held</th><th class="n" data-field="outgoing_txs">Outgoing txs</th></tr></thead>
+          <tbody data-draw="evm-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="exits">
+    <h2>Exit log</h2>
+    <p class="note">Every swap or bridge transfer that took value off NEAR, resolved from the 1Click status API and Omni Bridge logs. Newest first; the time is when the funds left the traced wallet. The Intents column is the 1Click deposit address and opens that swap in the NEAR Intents explorer.</p>
+    <div class="scroll">
+      <table data-source="exits" data-row-key="exit_id">
+        <thead><tr>
+          <th data-field="time_utc">Time (UTC)</th>
+          <th data-field="route">Route</th>
+          <th data-field="from_account">From</th>
+          <th class="n" data-field="amount_near">NEAR in</th>
+          <th class="n" data-field="amount_usd">USD in</th>
+          <th class="n" data-field="amount_out">Out</th>
+          <th data-field="asset_out">Asset</th>
+          <th data-field="recipient">Recipient</th>
+          <th data-field="status">Status</th>
+          <th data-field="near_tx">NEAR tx</th>
+          <th data-field="deposit_address">Intents</th>
+          <th data-field="dest_tx">Destination tx</th>
+        </tr></thead>
+        <tbody data-draw="exits-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="holding">
+    <h2>Downstream wallets still holding NEAR</h2>
+    <p class="note">Accounts funded by the root wallet, directly or through other hops, that still hold more than one NEAR.</p>
+    <div class="scroll">
+      <table data-source="holding" data-row-key="account">
+        <thead><tr><th data-field="account">Account</th><th class="n" data-field="depth">Hops from root</th><th data-field="funded_by">Funded by</th><th class="n" data-field="balance_near">Balance (NEAR)</th></tr></thead>
+        <tbody data-draw="holding-body"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+  dash.calc('summary', {
+    inputs: ['accounts', 'exits'],
+    title: 'Wallet summary',
+    description: 'Root balance and outflow, NEAR still in downstream wallets, and value that left NEAR (failed and refunded swaps excluded).',
+    fn: (accounts, exits) => {
+      const FUNDED_NEAR = 12410067.6; // three Binance hub sends on Oct 29
+      const root = accounts.find((a) => a.kind === 'root') || {};
+      const live = exits.filter((e) => e.status !== 'FAILED' && e.status !== 'REFUNDED');
+      return [{
+        root_balance_near: Number(root.balance_near || 0),
+        root_sent_near: Number(root.sent_near || 0),
+        share_moved: Number(root.sent_near || 0) / FUNDED_NEAR,
+        downstream_near: accounts.filter((a) => a.kind === 'tracked').reduce((s, a) => s + Number(a.balance_near), 0),
+        cluster_accounts: accounts.filter((a) => a.kind === 'root' || a.kind === 'tracked').length,
+        exited_near: live.reduce((s, e) => s + Number(e.amount_near), 0),
+        exited_usd: live.reduce((s, e) => s + Number(e.amount_usd), 0),
+        exits: live.length,
+      }];
+    },
+  });
+
+  dash.calc('by_asset', {
+    inputs: ['exits'],
+    title: 'Exits by route and asset',
+    description: 'NEAR and USD that left per route and destination asset, largest first (failed and refunded swaps excluded).',
+    fn: (exits) => {
+      const g = new Map();
+      for (const e of exits) {
+        if (e.status === 'FAILED' || e.status === 'REFUNDED') continue;
+        const asset = e.asset_out + ' via ' + e.route;
+        const r = g.get(asset) || { asset, near: 0, usd: 0, count: 0 };
+        r.near += Number(e.amount_near); r.usd += Number(e.amount_usd); r.count += 1;
+        g.set(asset, r);
+      }
+      return [...g.values()].sort((a, b) => b.near - a.near);
+    },
+  });
+
+  dash.calc('holding', {
+    inputs: ['accounts'],
+    title: 'Downstream wallets holding NEAR',
+    description: 'Traced accounts (not the root) with more than one NEAR, largest first.',
+    fn: (accounts) => accounts
+      .filter((a) => a.kind === 'tracked' && Number(a.balance_near) > 1)
+      .map((a) => ({ account: a.account, depth: Number(a.depth), funded_by: a.funded_by, balance_near: Number(a.balance_near) }))
+      .sort((a, b) => b.balance_near - a.balance_near),
+  });
+
+  const nearFmt = d3.format(',.0f');
+  const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 });
+  const big = (v) => (Math.abs(v) >= 10000 ? compact.format(v) : nearFmt(v));
+  const usdFmt = (v) => '$' + (Math.abs(v) >= 10000 ? compact.format(v) : d3.format(',.0f')(v));
+
+  // one value from one dataset row into a drawing
+  const value = (id, field, f, row = 0) => (el) => {
+    const d = dash.data(id);
+    el.classList.toggle('dash-skeleton', d.status === 'loading');
+    const r = d.status === 'ok' ? d.data[row] : null;
+    el.textContent = r && r[field] !== undefined && r[field] !== '' ? f(r[field]) : '—';
+  };
+  dash.draw('asof', value('accounts', 'as_of', (v) => String(v).replace('Z', '')));
+  dash.draw('rootbal', value('summary', 'root_balance_near', big));
+  dash.draw('exusd', value('summary', 'exited_usd', usdFmt));
+  dash.draw('topasset', value('by_asset', 'asset', (v) => String(v).split(' via ')[0]));
+  dash.draw('t-root', value('summary', 'root_balance_near', big));
+  dash.draw('t-sent', value('summary', 'root_sent_near', big));
+  dash.draw('t-pct', value('summary', 'share_moved', d3.format('.2%')));
+  dash.draw('t-exited', value('summary', 'exited_near', big));
+  dash.draw('t-exits', value('summary', 'exits', d3.format(',')));
+  dash.draw('t-held', value('summary', 'downstream_near', big));
+  dash.draw('t-cluster', value('summary', 'cluster_accounts', d3.format(',')));
+
+  const failLine = (el) => { const p = document.createElement('div'); p.className = 'fail'; p.textContent = 'Failed to load'; el.replaceChildren(p); };
+  const cell = (tr, text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; tr.appendChild(td); return td; };
+  // full value in the cell (ellipsized by CSS), with a button that copies all of it
+  const COPY_ICON = '<svg class="copy-mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"/></svg>'
+    + '<svg class="ok-mark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>';
+  const selectText = (node) => { const r = document.createRange(); r.selectNodeContents(node); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const copyCell = (tr, value, href) => {
+    const td = cell(tr, '', 'mono');
+    if (!value) return td;
+    const wrap = document.createElement('span'); wrap.className = 'cp';
+    const t = document.createElement(href ? 'a' : 'span');
+    if (href) { t.href = href; t.target = '_blank'; t.rel = 'noopener'; }
+    t.className = 'cp-text'; t.textContent = value; t.title = value;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'cp-btn'; b.setAttribute('aria-label', 'Copy ' + value); b.innerHTML = COPY_ICON;
+    b.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const done = () => { b.classList.add('copied'); b.setAttribute('aria-label', 'Copied'); setTimeout(() => { b.classList.remove('copied'); b.setAttribute('aria-label', 'Copy ' + value); }, 1500); };
+      try {
+        navigator.clipboard.writeText(value).then(done, () => selectText(t));
+      } catch (e) { selectText(t); }
+    });
+    wrap.append(t, b);
+    td.appendChild(wrap);
+    return td;
+  };
+  const txHref = (asset, hash) => {
+    if (asset === 'BTC') return 'https://mempool.space/tx/' + hash;
+    if (/^0x[0-9a-fA-F]{64}$/.test(hash)) return 'https://etherscan.io/tx/' + hash;
+    return null;
+  };
+  const addrHref = (asset, addr) => {
+    if (asset === 'BTC') return 'https://mempool.space/address/' + addr;
+    if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return 'https://etherscan.io/address/' + addr;
+    return 'https://pikespeak.ai/account/' + addr;
+  };
+
+  dash.draw('exits-body', (tb) => {
+    const d = dash.data('exits');
+    if (d.status !== 'ok') { tb.replaceChildren(); return; }
+    const rows = [...d.data].sort((a, b) => String(b.time_utc).localeCompare(String(a.time_utc)));
+    tb.replaceChildren(...rows.map((e) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = e.exit_id;
+      cell(tr, e.time_utc || '');
+      cell(tr, e.route);
+      copyCell(tr, e.from_account, 'https://pikespeak.ai/account/' + e.from_account + '?tab=transfers');
+      cell(tr, d3.format(',.2f')(Number(e.amount_near)), 'n');
+      cell(tr, Number(e.amount_usd) ? usdFmt(Number(e.amount_usd)) : '', 'n');
+      cell(tr, e.amount_out ? d3.format(',.6~f')(Number(e.amount_out)) : '', 'n');
+      cell(tr, e.asset_out);
+      copyCell(tr, e.recipient, addrHref(e.asset_out, e.recipient));
+      const s = cell(tr, '');
+      const pill = document.createElement('span');
+      pill.className = 'pill ' + (e.status === 'SUCCESS' ? 's-ok' : e.status === 'FAILED' || e.status === 'REFUNDED' ? 's-bad' : 's-warn');
+      pill.textContent = e.status;
+      s.appendChild(pill);
+      copyCell(tr, e.near_tx, e.near_tx ? 'https://pikespeak.ai/transaction-viewer/' + e.near_tx : null);
+      copyCell(tr, e.deposit_address, e.deposit_address ? 'https://explorer.near-intents.org/transactions/' + e.deposit_address : null);
+      copyCell(tr, e.dest_tx, e.dest_tx && !e.dest_tx.includes(',') ? txHref(e.asset_out, e.dest_tx) : null);
+      return tr;
+    }));
+  });
+
+  dash.draw('btc-body', (tb) => {
+    const d = dash.data('btc');
+    if (d.status !== 'ok') { tb.replaceChildren(); return; }
+    const btc = d3.format(',.5f');
+    tb.replaceChildren(...d.data.map((b) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = b.address;
+      copyCell(tr, b.address, 'https://mempool.space/address/' + b.address);
+      cell(tr, btc(Number(b.received_btc)), 'n');
+      cell(tr, btc(Number(b.spent_btc)), 'n');
+      cell(tr, btc(Number(b.held_btc)), 'n');
+      cell(tr, d3.format(',')(Number(b.txs)), 'n');
+      return tr;
+    }));
+  });
+
+  const EXPLORER = { eth: 'https://etherscan.io/address/', base: 'https://basescan.org/address/', arb: 'https://arbiscan.io/address/', bnb: 'https://bscscan.com/address/' };
+  const NATIVE = { eth: 'ETH', base: 'ETH', arb: 'ETH', bnb: 'BNB' };
+  dash.draw('evm-body', (tb) => {
+    const d = dash.data('evm');
+    if (d.status !== 'ok') { tb.replaceChildren(); return; }
+    const num = (v, f) => (v === null || v === undefined || v === '' ? '' : f(Number(v)));
+    tb.replaceChildren(...d.data.map((r) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = encodeURIComponent(r.address) + ',' + encodeURIComponent(r.chain);
+      copyCell(tr, r.address, (EXPLORER[r.chain] || EXPLORER.eth) + r.address);
+      cell(tr, r.chain);
+      cell(tr, r.assets_received);
+      cell(tr, d3.format(',.2f')(Number(r.near_in)), 'n');
+      cell(tr, num(r.native_balance, (v) => d3.format(',.4f')(v) + ' ' + (NATIVE[r.chain] || '')), 'n');
+      cell(tr, num(r.near_token_balance, d3.format(',.2f')), 'n');
+      cell(tr, num(r.outgoing_txs, d3.format(',')), 'n');
+      return tr;
+    }));
+  });
+
+  dash.draw('holding-body', (tb) => {
+    const d = dash.data('holding');
+    if (d.status !== 'ok') { tb.replaceChildren(); return; }
+    tb.replaceChildren(...d.data.map((a) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = a.account;
+      copyCell(tr, a.account, 'https://pikespeak.ai/account/' + a.account + '?tab=transfers');
+      cell(tr, d3.format(',')(a.depth), 'n');
+      copyCell(tr, a.funded_by, 'https://pikespeak.ai/account/' + a.funded_by + '?tab=transfers');
+      cell(tr, d3.format(',.2f')(a.balance_near), 'n');
+      return tr;
+    }));
+  });
+
+  dash.draw('assets', (el) => {
+    const d = dash.data('by_asset');
+    el.classList.toggle('dash-skeleton', d.status === 'loading');
+    if (d.status === 'error') { failLine(el); return; }
+    if (d.status !== 'ok' || !d.data.length) { el.replaceChildren(); return; }
+    const rows = d.data;
+    const W = Math.max(280, el.clientWidth), barH = 22, gap = 12;
+    const svg = d3.create('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} 10`);
+    el.replaceChildren(svg.node());
+    // measure labels once the svg is in the page
+    const meas = svg.append('g').attr('font-size', 12).attr('fill', 'currentColor');
+    let lw = 0, vw = 0;
+    rows.forEach((r) => {
+      const t = meas.append('text').text(r.asset); lw = Math.max(lw, t.node().getComputedTextLength()); t.remove();
+      const v = meas.append('text').text(nearFmt(r.near) + ' NEAR'); vw = Math.max(vw, v.node().getComputedTextLength()); v.remove();
+    });
+    meas.remove();
+    const left = Math.min(lw + 10, W * 0.45), right = vw + 10;
+    const H = rows.length * (barH + gap);
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+    const x = d3.scaleLinear([0, d3.max(rows, (r) => r.near)], [0, Math.max(10, W - left - right)]);
+    const g = svg.append('g').attr('font-size', 12);
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; el.appendChild(tip);
+    rows.forEach((r, i) => {
+      const y = i * (barH + gap);
+      g.append('text').attr('x', 0).attr('y', y + barH / 2).attr('dy', '0.35em').attr('fill', 'var(--color-fg)').text(r.asset);
+      const bar = g.append('rect').attr('x', left).attr('y', y).attr('height', barH).attr('width', Math.max(2, x(r.near)))
+        .attr('rx', 3).attr('fill', i === 0 ? dash.colors[0] : 'var(--cds-chart-muted)');
+      g.append('text').attr('x', left + Math.max(2, x(r.near)) + 6).attr('y', y + barH / 2).attr('dy', '0.35em')
+        .attr('fill', 'var(--color-fg-muted)').text(nearFmt(r.near) + ' NEAR');
+      bar.on('mousemove', (ev) => {
+        const k = document.createElement('div'); k.className = 'k'; k.textContent = r.asset;
+        const v = document.createElement('div');
+        v.textContent = `${nearFmt(r.near)} NEAR · ${r.usd ? usdFmt(r.usd) : 'USD n/a'} · ${r.count} exits`;
+        tip.replaceChildren(k, v); tip.hidden = false;
+        const [px, py] = d3.pointer(ev, el);
+        const tw = tip.offsetWidth;
+        tip.style.left = Math.max(0, Math.min(px + 12, el.clientWidth - tw)) + 'px';
+        tip.style.top = (py + 12) + 'px';
+      }).on('mouseleave', () => { tip.hidden = true; });
+    });
+  });
+</script>
