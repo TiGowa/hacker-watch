@@ -84,6 +84,14 @@ SERVICES = {
     "team.herewallet.near": "HERE Wallet sponsor",
     "free-name.herewallet.near": "HERE Wallet sponsor",
 }
+# NEP-141 tokens seen moving through bridges: label, decimals, counts as USD
+TOKENS = {
+    "wrap.near": ("wNEAR", 24, False),
+    "usdt.tether-token.near": ("USDt", 6, True),
+    "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near": ("USDT.e", 6, True),
+    "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1": ("USDC", 6, True),
+    "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near": ("USDC.e", 6, True),
+}
 # Calls to these contracts carry the bridge / intents detail in their logs.
 PARSE_TARGETS = {"wrap.near", "omni.bridge.near", "intents.near", "aggregatedex.near"}
 FINAL_1CLICK = {"SUCCESS", "REFUNDED", "FAILED"}
@@ -158,7 +166,7 @@ def asset_name(asset_id):
     if a.endswith(".omft.near"):
         base = a[: -len(".omft.near")]
         return base.upper() if "-" not in base else base.replace("-", ":", 1)
-    return {"wrap.near": "wNEAR"}.get(a, a)
+    return TOKENS[a][0] if a in TOKENS else a
 
 
 # --------------------------------------------------------------------- state
@@ -291,12 +299,15 @@ def parse_tx(db, tx, sender):
                 key = f"omni:{m['origin_nonce']}"
                 if db.execute("SELECT 1 FROM exits WHERE key=?", (key,)).fetchone():
                     continue
-                amt = int(m["amount"]) / 1e24 if m["token"] == "near:wrap.near" else None
+                token = m["token"].split(":", 1)[-1]
+                label, dec, is_usd = TOKENS.get(token, (token, None, False))
+                units = int(m["amount"]) / 10 ** dec if dec is not None else None
+                amt = units if token == "wrap.near" else None
                 db.execute("INSERT INTO exits VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                           (key, "Omni Bridge", sender, None, tx, amt, None,
-                            f"{asset_name(m['token'])}@{chain}", to, None,
+                           (key, "Omni Bridge", sender, None, tx, amt, units if is_usd else None,
+                            f"{label}@{chain}", to, None if amt is not None or units is None else f"{units:g}",
                             "INITIATED", None, ts, now()))
-                alert("Exit via Omni Bridge", f"{amt or '?'} NEAR → {chain} {to}")
+                alert("Exit via Omni Bridge", f"{units if units is not None else m['amount']} {label} → {chain} {to}")
             elif ev.get("standard") == "nep245" and ev.get("event") == "mt_mint":
                 for d in ev.get("data", []):
                     key = f"intents:{tx}:{d['owner_id']}"
@@ -314,7 +325,11 @@ def parse_function_calls(db, acc):
     transfers, so list them from Nearblocks and parse the interesting ones."""
     r = http_json(f"{NEARBLOCKS}/account/{acc}/txns?per_page=25")
     for t in (r or {}).get("txns", []):
-        if t["predecessor_account_id"] == acc and t["receiver_account_id"] in PARSE_TARGETS:
+        if t["predecessor_account_id"] != acc:
+            continue
+        # any token can be bridged: ft_transfer_call on the token contract, not just wrap.near
+        if t["receiver_account_id"] in PARSE_TARGETS or any(
+                a.get("method") == "ft_transfer_call" for a in t.get("actions") or []):
             parse_tx(db, t["transaction_hash"], acc)
     time.sleep(10)  # Nearblocks free tier is ~6 req/min
 
@@ -349,9 +364,9 @@ def scan(db, acc):
         if kind == "tracked":
             msg = f"{short(acc)} → {short(rcv)} {amt:,.2f} NEAR (depth {depth})"
             alert("New hop", msg) if amt >= BIG_HOP else log("new hop " + msg)
+    # paying any named contract (storage deposits included) means it may have bridged or swapped tokens
     if touched_contracts or db.execute(
-            "SELECT 1 FROM transfers WHERE sender=? AND receiver IN ('wrap.near','omni.bridge.near','intents.near') LIMIT 1",
-            (acc,)).fetchone():
+            "SELECT 1 FROM transfers WHERE sender=? AND receiver LIKE '%.%' LIMIT 1", (acc,)).fetchone():
         parse_function_calls(db, acc)
     db.commit()
     return len(rows)
