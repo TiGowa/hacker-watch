@@ -92,12 +92,13 @@ VENUE_DEPOSITS = {
     "6ac2e1a161f02e3e8fed6cfa1b249d0f015c0f5d7968c7d8ef482d65995f507b": ("Swap service → Binance", "Swap service's Binance deposit address", "Binance"),
 }
 # Balances worth showing as "freezable": where exited NEAR is still sitting.
+# Hot wallets (the swap service's, Exolix's) are left out: their balance is
+# the business's float, not the cluster's money.
 VENUE_HOLDS = {
     "ba3ef477392ff17736e8b99b10df03487272868aaf84bb5702e9ea7433b5cc0d": ("Swap service → Binance", "Swap service shared deposit address", SWAP_SERVICE),
     "6ac2e1a161f02e3e8fed6cfa1b249d0f015c0f5d7968c7d8ef482d65995f507b": ("Swap service → Binance", "Binance deposit address of the swap service (unswept since Oct 29)", "Binance"),
-    "e292f41cccbf8500ccc64e9a767333d73b0e7360abba6c9008f280f9b3995982": ("Swap service → Binance", "Swap service hot wallet", SWAP_SERVICE),
-    "e589457354361489a89039b8be6737cbc2db4d13919b6ccf23889a60f3b0d8f3": ("Exolix", "Exolix NEAR hot wallet", "Exolix"),
 }
+VENUE_CONTACTS = {"Swap service → Binance": "Binance, then the swap service", "Exolix": "Exolix"}
 FORWARD_SHARE = 0.9  # share of an account's NEAR out going to one CEX hot wallet to call it a deposit address
 INCIDENT_NS = int(datetime(2026, 10, 29, 20, 15, tzinfo=timezone.utc).timestamp()) * 10**9  # ignore earlier rows
 SERVICES = {
@@ -686,8 +687,9 @@ def write_export(db, acc, exits, btc):
     holds = venue_holds()
     files["venues.json"] = [
         {**r, "near_in": round(r["near_in"], 4), "deposit_addresses": len(r["deposit_addresses"]),
-         "held_near": round(sum(h["balance_near"] or 0 for h in holds if h["route"] == r["route"]), 4),
-         "who_can_act": next((h["who_can_act"] for h in holds if h["route"] == r["route"]), r["route"]),
+         "held_near": round(sum(h["balance_near"] or 0 for h in holds if h["route"] == r["route"]), 4)
+         if any(h["route"] == r["route"] for h in holds) else None,
+         "who_can_act": VENUE_CONTACTS.get(r["route"], r["route"]),
          "as_of": stamp} for r in routes.values()]
     files["holds.json"] = [{**h, "balance_near": round(h["balance_near"], 4) if h["balance_near"] is not None else None,
                             "as_of": stamp} for h in holds]
