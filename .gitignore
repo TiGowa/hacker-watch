@@ -9,3 +9,4 @@ edges.csv
 export/
 dashboard/index_doc.json
 __pycache__/
+watch.db-journal

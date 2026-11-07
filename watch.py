@@ -7,7 +7,10 @@ fresh accounts it funds, and resolves where value leaves NEAR:
   - 1Click / NEAR Intents deposit addresses -> destination asset + recipient
   - Omni Bridge transfers (wrap.near -> omni.bridge.near) -> chain + recipient
   - Intents deposits (mt_mint into intents.near)          -> intents owner
-  - Binance hubs and busy service accounts                 -> terminal label
+  - Service / exchange deposit addresses                   -> CEX exit (swap
+    service that banks at Binance, Exolix, any account forwarding to a known
+    exchange hot wallet)
+  - Busy service accounts                                  -> terminal label
 
 State lives in watch.db; report.md and edges.csv are rewritten every cycle.
 Alerts go to watch.log (stdout) and macOS notifications.
@@ -63,14 +66,40 @@ EVM = {
     "bnb": ("https://bsc-rpc.publicnode.com", "0x028e0686cb8458e84f0925a051c82227f958fdb1"),
 }
 
-BINANCE = {
-    "5c33c6218d47e00ef229f60da78d0897e1ee9665312550b8afd5f9c7bc6957d2",
-    "451913e633c72fb951effe076d3bd2977e3f08083dcf6c87fa89992b0d437c5c",
-    "9c484fa5d2d069569ba063fc555c34e621ccd88fdbb0295fc79bad232621c5c1",
-    "d04204b6591fefb973a8ed60929f8211af89ee38020da9faf905acdc7a320063",
-    "ccb91e1db61e8d7e1d4ae3e043001140132959a86ee35a548b6563a46284a6ea",
-    "30d6205b89e02d2c34ade165ae9705f8d9e80d0e304061cb10b8e56c8e703f62",
+# Exchange / service hot wallets. Their deposit addresses forward (sweep) into
+# them, so an account that sends ~all its NEAR to one of these is a deposit
+# address of that venue, and a cluster payment into it is a CEX exit.
+CEX_HOT = {
+    "5c33c6218d47e00ef229f60da78d0897e1ee9665312550b8afd5f9c7bc6957d2": "Binance",
+    "451913e633c72fb951effe076d3bd2977e3f08083dcf6c87fa89992b0d437c5c": "Binance",
+    "9c484fa5d2d069569ba063fc555c34e621ccd88fdbb0295fc79bad232621c5c1": "Binance",
+    "d04204b6591fefb973a8ed60929f8211af89ee38020da9faf905acdc7a320063": "Binance",
+    "7747991786f445efb658b69857eadc7a57b6b475beec26ed14da8bc35bb2b5b6": "Binance",
+    # sweep pattern only, never linked to a named Binance wallet
+    "ccb91e1db61e8d7e1d4ae3e043001140132959a86ee35a548b6563a46284a6ea": "Binance (unconfirmed)",
+    # own wallet family, no flow with Binance hubs; reported as OKX
+    "30d6205b89e02d2c34ade165ae9705f8d9e80d0e304061cb10b8e56c8e703f62": "Exchange 30d6205b (reported OKX)",
+    # Exolix's site hands out reused deposit addresses that forward here (test order, Nov 6)
+    "e589457354361489a89039b8be6737cbc2db4d13919b6ccf23889a60f3b0d8f3": "Exolix",
 }
+BINANCE = {a for a, v in CEX_HOT.items() if v == "Binance"}
+# Deposit addresses of services that end at an exchange: a cluster payment into
+# one is an exit. route, label, who can act.
+SWAP_SERVICE = "Unnamed swap service (hot wallet e292f41c…, banks at Binance via 6ac2e1a1…)"
+VENUE_DEPOSITS = {
+    "ba3ef477392ff17736e8b99b10df03487272868aaf84bb5702e9ea7433b5cc0d": ("Swap service → Binance", "Swap service shared deposit address", SWAP_SERVICE),
+    "e292f41cccbf8500ccc64e9a767333d73b0e7360abba6c9008f280f9b3995982": ("Swap service → Binance", "Swap service hot wallet", SWAP_SERVICE),
+    "6ac2e1a161f02e3e8fed6cfa1b249d0f015c0f5d7968c7d8ef482d65995f507b": ("Swap service → Binance", "Swap service's Binance deposit address", "Binance"),
+}
+# Balances worth showing as "freezable": where exited NEAR is still sitting.
+VENUE_HOLDS = {
+    "ba3ef477392ff17736e8b99b10df03487272868aaf84bb5702e9ea7433b5cc0d": ("Swap service → Binance", "Swap service shared deposit address", SWAP_SERVICE),
+    "6ac2e1a161f02e3e8fed6cfa1b249d0f015c0f5d7968c7d8ef482d65995f507b": ("Swap service → Binance", "Binance deposit address of the swap service (unswept since Oct 29)", "Binance"),
+    "e292f41cccbf8500ccc64e9a767333d73b0e7360abba6c9008f280f9b3995982": ("Swap service → Binance", "Swap service hot wallet", SWAP_SERVICE),
+    "e589457354361489a89039b8be6737cbc2db4d13919b6ccf23889a60f3b0d8f3": ("Exolix", "Exolix NEAR hot wallet", "Exolix"),
+}
+FORWARD_SHARE = 0.9  # share of an account's NEAR out going to one CEX hot wallet to call it a deposit address
+INCIDENT_NS = int(datetime(2026, 10, 29, 20, 15, tzinfo=timezone.utc).timestamp()) * 10**9  # ignore earlier rows
 SERVICES = {
     "wrap.near": "wNEAR wrapper",
     "omni.bridge.near": "Omni Bridge",
@@ -231,11 +260,40 @@ def record_oneclick(db, addr, src, tx, st):
         log(f"1Click {short(addr)} status {old['status']} -> {st['status']}")
 
 
+def forwards_to_cex(acc, rows=None):
+    """CEX hot wallet that takes >= FORWARD_SHARE of acc's outgoing NEAR, if any."""
+    rows = rows if rows is not None else (pike(f"/account/near-transfer/{acc}?limit=50") or [])
+    out = {}
+    for r in rows:
+        if isinstance(r, dict) and r.get("sender") == acc and r.get("status", True):
+            out[r["receiver"]] = out.get(r["receiver"], 0) + float(r["amount"])
+    total = sum(out.values())
+    if total <= 0:
+        return None
+    best = max(out, key=out.get)
+    return best if best in CEX_HOT and out[best] >= FORWARD_SHARE * total else None
+
+
+def venue_of(acc, hot=None):
+    """(route, label, contact) when acc is a known or detected venue deposit address."""
+    if acc in VENUE_DEPOSITS:
+        return VENUE_DEPOSITS[acc]
+    if hot:
+        name = CEX_HOT[hot]
+        return (name, f"{name} deposit address (forwards to {short(hot, 6)})", name)
+    return None
+
+
 def classify(db, acc, src, tx):
     if acc in SERVICES:
         return "service", SERVICES[acc]
-    if acc in BINANCE:
-        return "binance", "Binance hub"
+    if acc in VENUE_DEPOSITS:
+        return "venue", VENUE_DEPOSITS[acc][1]
+    if acc in CEX_HOT:
+        return "cex", f"{CEX_HOT[acc]} hot wallet"
+    hot = forwards_to_cex(acc)
+    if hot:
+        return "venue", venue_of(acc, hot)[1]
     st = oneclick_status(acc)
     if st:
         record_oneclick(db, acc, src, tx, st)
@@ -244,6 +302,62 @@ def classify(db, acc, src, tx):
     if isinstance(tc, int) and tc > SERVICE_TXCOUNT:
         return "service", f"busy account ({tc:,} txs)"
     return "tracked", ""
+
+
+def update_venue_exits(db):
+    """Turn cluster payments into service / exchange deposit addresses into exits.
+
+    1. Known venue addresses and CEX hot wallets get their kind fixed (older
+       runs filed them as 'service' or 'binance').
+    2. A tracked account whose outgoing NEAR (as seen in transfers) goes
+       >= FORWARD_SHARE to one CEX hot wallet is a deposit address of that
+       venue (Exolix reuses these; Binance gives one per user): it leaves the
+       cluster and becomes a 'venue'.
+    3. Every cluster -> venue/cex transfer after the incident is an exit row.
+    """
+    for a, (route, label, _) in VENUE_DEPOSITS.items():
+        db.execute("UPDATE accounts SET kind='venue', label=? WHERE id=?", (label, a))
+    for a, name in CEX_HOT.items():
+        db.execute("UPDATE accounts SET kind='cex', label=? WHERE id=?", (f"{name} hot wallet", a))
+    db.execute("DELETE FROM exits WHERE key LIKE 'binance:%'")  # legacy rows, rebuilt below
+    for acc in [r[0] for r in db.execute("SELECT id FROM accounts WHERE kind='tracked'")]:
+        rows = [{"sender": s, "receiver": rc, "amount": a} for s, rc, a in
+                db.execute("SELECT sender, receiver, amount FROM transfers WHERE sender=?", (acc,))]
+        hot = forwards_to_cex(acc, rows)
+        if hot:
+            label = venue_of(acc, hot)[1]
+            db.execute("UPDATE accounts SET kind='venue', label=?, dirty=0 WHERE id=?", (label, acc))
+            log(f"{short(acc)} reclassified: {label}")
+    venues = {r["id"]: r for r in db.execute("SELECT * FROM accounts WHERE kind IN ('venue','cex')")}
+    cluster = {r[0] for r in db.execute("SELECT id FROM accounts WHERE kind IN ('root','tracked')")}
+    for t in db.execute("SELECT * FROM transfers WHERE ts >= ? ORDER BY ts", (INCIDENT_NS,)).fetchall():
+        if t["receiver"] not in venues or t["sender"] not in cluster:
+            continue
+        rcv = t["receiver"]
+        if rcv in VENUE_DEPOSITS:
+            route, label, _ = VENUE_DEPOSITS[rcv]
+        elif rcv in CEX_HOT:
+            route, label = CEX_HOT[rcv], f"{CEX_HOT[rcv]} hot wallet (direct)"
+        else:
+            hot = next((r[0] for r in db.execute(
+                "SELECT receiver FROM transfers WHERE sender=? GROUP BY receiver ORDER BY SUM(amount) DESC LIMIT 1",
+                (rcv,))), None)
+            label = venues[rcv]["label"] or "Exchange deposit address"
+            route = CEX_HOT.get(hot) or label.split(" deposit address")[0]
+        key = f"venue:{t['tx']}:{rcv}"
+        if db.execute("SELECT 1 FROM exits WHERE key=?", (key,)).fetchone():
+            continue
+        db.execute("INSERT INTO exits VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (key, route, t["sender"], rcv, t["tx"], t["amount"], None, "NEAR", rcv,
+                    f"{t['amount']:.4f}", "SUCCESS", None, t["ts"], now()))
+        alert(f"Exit via {route}", f"{t['amount']:,.2f} NEAR from {short(t['sender'])} → {label}")
+    db.commit()
+
+
+def venue_holds():
+    """Live balances where exited NEAR is sitting (for the 'freezable' panel)."""
+    return [{"address": a, "route": route, "what": label, "who_can_act": who, "balance_near": balance(a)}
+            for a, (route, label, who) in VENUE_HOLDS.items()]
 
 
 # ----------------------------------------------------------------- scanning
@@ -356,11 +470,7 @@ def scan(db, acc):
             kind, label = "terminal", "depth limit"
         db.execute("INSERT INTO accounts VALUES(?,?,?,?,?,?,?,?)",
                    (rcv, depth, acc, kind, label, now(), None, 3 if kind == "tracked" else 0))
-        if kind == "binance":
-            db.execute("INSERT OR IGNORE INTO exits VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                       (f"binance:{r['transaction_id']}", "Binance deposit", acc, rcv, r["transaction_id"],
-                        amt, None, "NEAR", rcv, None, "SENT", None, int(r["timestamp"]), now()))
-            alert("Sent to Binance", f"{amt:,.0f} NEAR from {short(acc)}")
+        # venue / cex payments become exits in update_venue_exits()
         if kind == "tracked":
             msg = f"{short(acc)} → {short(rcv)} {amt:,.2f} NEAR (depth {depth})"
             alert("New hop", msg) if amt >= BIG_HOP else log("new hop " + msg)
@@ -431,7 +541,9 @@ def write_report(db):
     acc = {r["id"]: r for r in db.execute("SELECT * FROM accounts")}
     root_bal = acc[ROOT]["balance"]
     root_out = db.execute("SELECT COALESCE(SUM(amount),0) FROM transfers WHERE sender=?", (ROOT,)).fetchone()[0]
-    exits = db.execute("SELECT * FROM exits ORDER BY COALESCE(ts,0), updated").fetchall()
+    # rows before the incident are false positives (tracing through shared contracts)
+    exits = db.execute("SELECT * FROM exits WHERE ts IS NULL OR ts = 0 OR ts >= ? ORDER BY COALESCE(ts,0), updated",
+                       (INCIDENT_NS,)).fetchall()
     sitting = [r for r in acc.values() if r["kind"] == "tracked" and (r["balance"] or 0) > 1]
 
     L = [f"# Hacker wallet watch", "",
@@ -458,6 +570,24 @@ def write_report(db):
         L.append(f"| {e['via']} | `{short(e['src'] or '', 6)}` | {e['amount_near'] or 0:,.0f} | {e['amount_usd'] or 0:,.0f} "
                  f"| {e['amount_out'] or ''} {e['dest_asset'] or ''} | `{e['recipient']}` | {e['status']} "
                  f"| `{short(e['dest_tx'] or '', 8)}` |")
+
+    venue_rows = [e for e in exits if e["key"].startswith("venue:")]
+    if venue_rows:
+        L += ["", "## CEX exits through services", "",
+              "Cluster payments into deposit addresses of services that end at an exchange "
+              "(the swap service that banks at Binance, Exolix, exchange deposit addresses).", "",
+              "| Route | Deposits | NEAR in | Deposit addresses |", "|---|---:|---:|---:|"]
+        agg = {}
+        for e in venue_rows:
+            a = agg.setdefault(e["via"], [0, 0.0, set()])
+            a[0] += 1
+            a[1] += e["amount_near"] or 0
+            a[2].add(e["deposit_addr"])
+        L += [f"| {v} | {c} | {n:,.2f} | {len(s)} |" for v, (c, n, s) in sorted(agg.items(), key=lambda kv: -kv[1][1])]
+        L += ["", "### Where that NEAR sits now", "", "| Address | What | Who can act | Balance |", "|---|---|---|---:|"]
+        L += [f"| `{short(h['address'])}` | {h['what']} | {h['who_can_act']} | "
+              f"{h['balance_near']:,.2f} |" if h["balance_near"] is not None else
+              f"| `{short(h['address'])}` | {h['what']} | {h['who_can_act']} | ? |" for h in venue_holds()]
 
     btc = db.execute("SELECT * FROM btc ORDER BY received DESC").fetchall()
     if btc:
@@ -508,7 +638,8 @@ def write_export(db, acc, exits, btc):
                         "asset_out": e["dest_asset"] or "", "amount_out": e["amount_out"] or "",
                         "recipient": e["recipient"] or "", "status": e["status"] or "",
                         "near_tx": e["tx"] or "",
-                        "deposit_address": e["deposit_addr"] if e["via"] == "1Click/Intents" else "",
+                        "deposit_address": e["deposit_addr"] if e["via"] == "1Click/Intents"
+                        or e["key"].startswith("venue:") else "",
                         "dest_tx": e["dest_tx"] or "", "as_of": stamp} for e in exits],
         "btc.json": [{"address": b["addr"], "received_btc": b["received"], "spent_btc": b["spent"],
                       "held_btc": round(b["received"] - b["spent"], 8), "txs": b["txs"], "as_of": b["updated"]}
@@ -538,6 +669,28 @@ def write_export(db, acc, exits, btc):
             "native_balance": round(b["native"], 6) if b else None,
             "near_token_balance": round(b["near_token"], 4) if b else None,
             "outgoing_txs": b["nonce"] if b else None, "as_of": b["updated"] if b else ""})
+    # CEX exit routes through services: totals per route plus live balances
+    # of the addresses where that NEAR is still sitting (freezable).
+    routes = {}
+    for e in exits:
+        if not e["key"].startswith("venue:"):
+            continue
+        r = routes.setdefault(e["via"], {"route": e["via"], "deposits": 0, "near_in": 0.0,
+                                         "deposit_addresses": set(), "first_utc": None, "last_utc": None})
+        r["deposits"] += 1
+        r["near_in"] += e["amount_near"] or 0
+        r["deposit_addresses"].add(e["deposit_addr"])
+        t = utc(e["ts"])
+        r["first_utc"] = min(filter(None, [r["first_utc"], t]))
+        r["last_utc"] = max(filter(None, [r["last_utc"], t]))
+    holds = venue_holds()
+    files["venues.json"] = [
+        {**r, "near_in": round(r["near_in"], 4), "deposit_addresses": len(r["deposit_addresses"]),
+         "held_near": round(sum(h["balance_near"] or 0 for h in holds if h["route"] == r["route"]), 4),
+         "who_can_act": next((h["who_can_act"] for h in holds if h["route"] == r["route"]), r["route"]),
+         "as_of": stamp} for r in routes.values()]
+    files["holds.json"] = [{**h, "balance_near": round(h["balance_near"], 4) if h["balance_near"] is not None else None,
+                            "as_of": stamp} for h in holds]
     for name, rows in files.items():
         with open(os.path.join(out, name), "w") as f:
             json.dump(rows, f, indent=0)
@@ -563,6 +716,7 @@ def cycle(db, n):
         db.execute("UPDATE accounts SET balance=COALESCE(?,balance), dirty=? WHERE id=?", (bal, dirty, a["id"]))
         db.commit()
     refresh_open_exits(db)
+    update_venue_exits(db)
     unseen_btc = db.execute("SELECT 1 FROM exits WHERE dest_asset='BTC' AND recipient NOT IN "
                             "(SELECT addr FROM btc) LIMIT 1").fetchone()
     if n % 10 == 0 or unseen_btc:
